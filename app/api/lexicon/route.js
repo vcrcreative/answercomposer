@@ -1,10 +1,11 @@
+// app/api/lexicon/route.js
 import Airtable from "airtable";
 
 const { AIRTABLE_ACCESS_TOKEN, AIRTABLE_BASE_ID, LEXICON_TABLE } = process.env;
 const CORS = process.env.CORS_ALLOW_ORIGIN || "*";
 const base = new Airtable({ apiKey: AIRTABLE_ACCESS_TOKEN }).base(AIRTABLE_BASE_ID);
 
-// stringify helper (handles arrays and {value,state} cells)
+// stringify helper (handles arrays and {value,state})
 const toStr = (v) => {
   if (v == null) return "";
   if (typeof v === "string") return v;
@@ -18,28 +19,24 @@ export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const qRaw = (searchParams.get("q") || "").trim();
-    const esc = (s) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"'); // escape \ and "
+    const esc = (s) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
-    // Build a case-insensitive search across ctpv + Canonical Term + Shortcode + Definition.
-    // Using FIND(LOWER(...), LOWER(...)) > 0 tends to be most reliable.
-    const concat =
-      `CONCATENATE("" & {ctpv}, " ", "" & {Canonical Term}, " ", "" & {Shortcode}, " ", "" & {Definition})`;
-    const formula = qRaw
-      ? `FIND(LOWER("${esc(qRaw)}"), LOWER(${concat})) > 0`
-      : ""; // no filter => return all
+    // Search only across ctpv + Canonical Term + Shortcode
+    const concat = `CONCATENATE("" & {ctpv}, " ", "" & {Canonical Term}, " ", "" & {Shortcode})`;
+    const filterByFormula = qRaw ? `FIND(LOWER("${esc(qRaw)}"), LOWER(${concat})) > 0` : undefined;
 
-    // Fetch ALL matching records (no 100-row cap)
-    const records = await base(LEXICON_TABLE)
-      .select({
-        ...(formula ? { filterByFormula: formula } : {}),
-      })
-      .all();
+    // Ask Airtable to return only the three fields we need
+    const selectOpts = {
+      ...(filterByFormula ? { filterByFormula } : {}),
+      fields: ["Canonical Term", "Shortcode", "ctpv"],
+    };
+
+    const records = await base(LEXICON_TABLE).select(selectOpts).all();
 
     const rows = records.map((r) => ({
-      canonical:  toStr(r.get("Canonical Term")),
-      shortcode:  toStr(r.get("Shortcode")),
-      definition: toStr(r.get("Definition")),
-      ctpv:       toStr(r.get("ctpv")),  // ← always included
+      canonical: toStr(r.get("Canonical Term")),
+      shortcode: toStr(r.get("Shortcode")),
+      ctpv:      toStr(r.get("ctpv")),
     }));
 
     return new Response(JSON.stringify({ count: rows.length, lexicon: rows }), {
@@ -47,7 +44,6 @@ export async function GET(req) {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": CORS },
     });
   } catch (e) {
-    console.error("LEXICON ROUTE ERROR:", { msg: e?.message, statusCode: e?.statusCode, table: LEXICON_TABLE });
     return new Response(JSON.stringify({ error: e?.message || "Airtable error" }), {
       status: e?.statusCode || 500,
       headers: { "Access-Control-Allow-Origin": CORS },
