@@ -11,7 +11,7 @@ export function middleware(req) {
   const { pathname } = new URL(req.url);
   if (!pathname.startsWith('/api/')) return NextResponse.next();
 
-  const allow = ['3.143.106.159']; // ✅ your approved IP
+  const allow = ['3.143.106.159', '103.87.104.119'];
 
   const clientIp = getClientIp(req);
   if (!allow.includes(clientIp)) {
